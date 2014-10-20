@@ -1,0 +1,66 @@
+#!/bin/sh
+
+TEMP_DIR=/tmp/earth-wallpaper
+
+if [  -f "$HOME/.earthwallpaper" ]; then
+    . $HOME/.earthwallpaper
+else
+    echo "update-earth-wallpaper requires a ~/.earthwallpaper file"
+    echo "containing your Dundee satellite username and password"
+    echo "and desired output resolution, in the form:"
+    echo ""
+    echo "USERNAME=foo"
+    echo "PASSWORD=bar"
+    echo "RESOLUTION=1920x1080"
+    echo "OUT_FILE=earth.jpg"
+    echo "EARTH_IMG_DIR=~/images"
+    exit 1
+fi
+
+mkdir -p $TEMP_DIR
+cd $TEMP_DIR
+
+MAP_GEOMETRY=3600x1800
+OUT_GEOMETRY=$RESOLUTION
+
+
+convert $EARTH_IMG_DIR/world.topo.bathy.2004$(date '+%m').3x5400x2700.jpg -resize $MAP_GEOMETRY $TEMP_DIR/earth.jpg
+convert $EARTH_IMG_DIR/dnb_land_ocean_ice.2012.3600x1800.jpg -resize $MAP_GEOMETRY $TEMP_DIR/night.jpg
+
+cat >$TEMP_DIR/cloudmap.ini <<EOF 
+[Download]
+username=$USERNAME
+password=$PASSWORD
+tempdir=$TEMP_DIR/cloudmap
+resolution=medium
+purge=false
+
+[xplanet]
+destinationdir=$TEMP_DIR
+destinationfile=clouds.jpg
+width=3600
+height=1800
+EOF
+
+python -c 'import cloudmap.create_map; cloudmap.create_map.main()' --conf_file $TEMP_DIR/cloudmap.ini
+
+
+convert \
+    \( $TEMP_DIR/earth.jpg -set colorspace RGB -colorspace gray -colorspace RGB \
+        +level 5%,60% -fill 'hsb(63%,100%,80%)' -tint 70 +level 0,25% \) \
+    \( $TEMP_DIR/night.jpg -level 30,100% \) \
+    -compose screen -composite \
+    $TEMP_DIR/night2.jpg
+
+cp /usr/share/xplanet/config/default $TEMP_DIR/xplanet.config
+
+cat >>$TEMP_DIR/xplanet.config <<EOF
+[earth]
+image=$TEMP_DIR/earth.jpg
+night_map=$TEMP_DIR/night2.jpg
+cloud_map=$TEMP_DIR/clouds.jpg
+EOF
+
+xplanet -projection rectangular -geometry $OUT_GEOMETRY -config $TEMP_DIR/xplanet.config -output $OUT_FILE -num_times 1
+
+
